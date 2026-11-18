@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Savings Tracker</title>
+<link rel="manifest" href="manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+</script>
+<style>
+:root{
+  --bg:#fff7fb; --card:#ffffff; --text:#2b2030; --muted:#806f7d;
+  --accent:#d94f9d; --accent2:#8b5cf6; --border:#f0dce9;
+  --good:#22a06b; --danger:#d64545;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:linear-gradient(135deg,#fff7fb,#f8f4ff);color:var(--text)}
+.container{max-width:1100px;margin:auto;padding:28px 18px 50px}
+header{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:22px;flex-wrap:wrap}
+h1{margin:0;font-size:clamp(28px,5vw,44px)}
+.subtitle{color:var(--muted);margin:6px 0 0}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+button,.btn{border:0;border-radius:12px;padding:11px 15px;font-weight:700;cursor:pointer}
+.primary{background:var(--accent);color:white}.secondary{background:#f3e7ef;color:var(--text)}
+.danger{background:#ffe8e8;color:#a52e2e}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:18px;box-shadow:0 8px 30px #d89ac51a}
+.stat-label{color:var(--muted);font-size:13px}.stat{font-size:25px;font-weight:800;margin-top:7px}
+.progress-wrap{margin-top:10px;background:#f2e8ef;height:12px;border-radius:20px;overflow:hidden}
+.progress{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0%;transition:.3s}
+.main{display:grid;grid-template-columns:1fr 1.5fr;gap:18px;margin-top:18px}
+section{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:20px}
+h2{margin:0 0 15px;font-size:20px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{font-size:13px;font-weight:700;color:var(--muted)}
+input,select{width:100%;margin-top:6px;padding:12px;border:1px solid var(--border);border-radius:11px;background:#fff;color:var(--text);outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+.full{grid-column:1/-1}
+.goal-card{padding:14px;border-radius:14px;background:#fff6fb;border:1px solid var(--border);margin-bottom:15px}
+.goal-row{display:flex;justify-content:space-between;gap:10px;margin-bottom:5px}
+.goal-name{font-weight:700;font-size:18px}
+.goal-progress{font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:11px 7px;border-bottom:1px solid #f1e8ee}
+th{color:var(--muted);font-size:12px}
+.empty{text-align:center;color:var(--muted);padding:28px}
+.small-btn{padding:7px 9px;font-size:12px}
+.tip{margin-top:14px;color:var(--muted);font-size:13px;line-height:1.5}
+footer{text-align:center;color:var(--muted);font-size:12px;margin-top:22px}
+.goal-actions{display:flex;gap:6px;margin-top:8px}
+@media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.main{grid-template-columns:1fr}}
+@media(max-width:520px){.grid,.form-grid{grid-template-columns:1fr}.full{grid-column:auto}header{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <div>
+    <h1>💰 My Savings Tracker</h1>
+    <p class="subtitle">Track multiple goals, deposits and progress — all saved on this device.</p>
+  </div>
+  <div class="actions">
+    <button class="secondary" onclick="exportData()">Export</button>
+    <label class="btn secondary" style="display:inline-flex;align-items:center">
+      Import <input id="importFile" type="file" accept=".json" hidden onchange="importData(event)">
+    </label>
+    <button class="danger" onclick="clearAll()">Reset</button>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="card"><div class="stat-label">Total Saved</div><div class="stat" id="totalSaved">KSh 0</div></div>
+  <div class="card"><div class="stat-label">Total Target</div><div class="stat" id="target">KSh 0</div></div>
+  <div class="card"><div class="stat-label">Remaining</div><div class="stat" id="remaining">KSh 0</div></div>
+  <div class="card"><div class="stat-label">Overall Progress</div><div class="stat" id="percent">0%</div><div class="progress-wrap"><div class="progress" id="progress"></div></div></div>
+</div>
+
+<div class="main">
+  <!-- LEFT COLUMN: Goals -->
+  <section>
+    <h2>🎯 Savings Goals</h2>
+    <div style="margin-bottom:18px">
+      <div class="form-grid">
+        <div class="full"><label>Goal name<input id="goalName" placeholder="e.g. New phone"></label></div>
+        <div><label>Target amount (KSh)<input id="goalAmount" type="number" min="0" placeholder="37000"></label></div>
+        <div><label>Target date<input id="goalDate" type="date"></label></div>
+      </div>
+      <br><button class="primary" onclick="addGoal()">➕ Add Goal</button>
+    </div>
+    <div id="goalList"></div>
+  </section>
+
+  <!-- RIGHT COLUMN: Add Saving + History -->
+  <section>
+    <h2>➕ Add Savings</h2>
+    <div class="form-grid">
+      <div><label>Goal<select id="goalSelect"></select></label></div>
+      <div><label>Amount (KSh)<input id="amount" type="number" min="1" placeholder="500"></label></div>
+      <div><label>Date<input id="date" type="date"></label></div>
+      <div><label>Method<select id="method"><option>M-Pesa</option><option>Cash</option><option>Bank</option><option>Other</option></select></label></div>
+      <div class="full"><label>Note<input id="note" placeholder="Weekly saving"></label></div>
+      <div class="full"><button class="primary" onclick="addSaving()">Add Saving</button></div>
+    </div>
+    <p class="tip">✨ Tip: keep the amount realistic and automate your saving habit where possible.</p>
+
+    <h2 style="margin-top:24px">📊 Savings History</h2>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Date</th><th>Goal</th><th>Amount</th><th>Method</th><th>Note</th><th></th></tr></thead>
+        <tbody id="history"></tbody>
+      </table>
+    </div>
+    <div id="empty" class="empty">No savings recorded yet. Your first deposit goes here 💗</div>
+  </section>
+</div>
+<footer>Your data stays in your browser using local storage. Export a backup before clearing browser data.</footer>
+</div>
+
+<script>
+const KEY="cessSavingsTracker_v2";
+let data = loadData();
+
+function loadData() {
+  let raw = localStorage.getItem(KEY);
+  if (!raw) {
+    // Try to migrate from v1
+    const old = localStorage.getItem('cessSavingsTracker_v1');
+    if (old) {
+      try {
+        const oldData = JSON.parse(old);
+        if (oldData.goal && typeof oldData.goal === 'object' && Array.isArray(oldData.savings)) {
+          // Migrate: create one goal with old data and assign all savings to it
+          const goalId = Date.now();
+          const newData = {
+            goals: [{
+              id: goalId,
+              name: oldData.goal.name || 'My Goal',
+              amount: oldData.goal.amount || 0,
+              date: oldData.goal.date || ''
+            }],
+            savings: oldData.savings.map(s => ({
+              ...s,
+              goalId: goalId
+            }))
+          };
+          localStorage.setItem(KEY, JSON.stringify(newData));
+          // remove old to avoid repeated migration
+          // localStorage.removeItem('cessSavingsTracker_v1'); // optional
+          return newData;
+        }
+      } catch(e) {}
+    }
+    // No data or migration failed
+    return { goals: [], savings: [] };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    // ensure fields exist
+    if (!parsed.goals) parsed.goals = [];
+    if (!parsed.savings) parsed.savings = [];
+    return parsed;
+  } catch(e) {
+    return { goals: [], savings: [] };
+  }
+}
+
+function saveData() {
+  localStorage.setItem(KEY, JSON.stringify(data));
+}
+
+function today(){ return new Date().toISOString().slice(0,10); }
+document.getElementById("date").value = today();
+
+// ---- Helpers ----
+function money(n){ return "KSh "+Number(n||0).toLocaleString("en-KE",{maximumFractionDigits:2}); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c])); }
+
+// ---- Goals ----
+function addGoal() {
+  const name = document.getElementById("goalName").value.trim();
+  const amount = Number(document.getElementById("goalAmount").value || 0);
+  const date = document.getElementById("goalDate").value;
+  if (!name || amount <= 0) { alert("Please enter a goal name and a target amount."); return; }
+  data.goals.push({
+    id: Date.now(),
+    name: name,
+    amount: amount,
+    date: date
+  });
+  document.getElementById("goalName").value = "";
+  document.getElementById("goalAmount").value = "";
+  document.getElementById("goalDate").value = "";
+  saveData();
+  renderAll();
+}
+
+function deleteGoal(id) {
+  if (!confirm("Delete this goal and all its savings?")) return;
+  data.goals = data.goals.filter(g => g.id !== id);
+  data.savings = data.savings.filter(s => s.goalId !== id);
+  saveData();
+  renderAll();
+}
+
+// ---- Savings ----
+function addSaving() {
+  const goalId = Number(document.getElementById("goalSelect").value);
+  if (!goalId) { alert("Please select a goal."); return; }
+  const amount = Number(document.getElementById("amount").value);
+  if (amount <= 0) { alert("Enter a valid saving amount."); return; }
+  data.savings.push({
+    id: Date.now(),
+    goalId: goalId,
+    amount: amount,
+    date: document.getElementById("date").value || today(),
+    method: document.getElementById("method").value,
+    note: document.getElementById("note").value.trim()
+  });
+  document.getElementById("amount").value = "";
+  document.getElementById("note").value = "";
+  saveData();
+  renderAll();
+}
+
+function deleteSaving(id) {
+  if (!confirm("Remove this saving entry?")) return;
+  data.savings = data.savings.filter(s => s.id !== id);
+  saveData();
+  renderAll();
+}
+
+// ---- Rendering ----
+function renderAll() {
+  renderStats();
+  renderGoalList();
+  renderGoalSelect();
+  renderHistory();
+}
+
+function renderStats() {
+  const total = data.savings.reduce((sum, s) => sum + Number(s.amount), 0);
+  const totalTarget = data.goals.reduce((sum, g) => sum + Number(g.amount), 0);
+  const remaining = Math.max(totalTarget - total, 0);
+  const pct = totalTarget ? Math.min(total / totalTarget * 100, 100) : 0;
+  document.getElementById("totalSaved").textContent = money(total);
+  document.getElementById("target").textContent = money(totalTarget);
+  document.getElementById("remaining").textContent = money(remaining);
+  document.getElementById("percent").textContent = pct.toFixed(1) + "%";
+  document.getElementById("progress").style.width = pct + "%";
+}
+
+function renderGoalList() {
+  const container = document.getElementById("goalList");
+  if (data.goals.length === 0) {
+    container.innerHTML = `<div class="empty" style="padding:10px">No goals yet. Add one above!</div>`;
+    return;
+  }
+  let html = "";
+  for (const goal of data.goals) {
+    const savings = data.savings.filter(s => s.goalId === goal.id);
+    const saved = savings.reduce((sum, s) => sum + Number(s.amount), 0);
+    const target = Number(goal.amount);
+    const remaining = Math.max(target - saved, 0);
+    const pct = target ? Math.min(saved / target * 100, 100) : 0;
+    html += `
+      <div class="goal-card">
+        <div class="goal-row">
+          <span class="goal-name">${escapeHtml(goal.name)}</span>
+          <span><strong>${money(saved)}</strong> / ${money(target)}</span>
+        </div>
+        <div class="goal-row">
+          <span>Target date: ${goal.date || '—'}</span>
+          <span>Remaining: ${money(remaining)}</span>
+        </div>
+        <div class="progress-wrap" style="margin-top:6px">
+          <div class="progress" style="width:${pct}%"></div>
+        </div>
+        <div style="font-size:13px;color:var(--muted);margin-top:4px">${pct.toFixed(1)}% complete</div>
+        <div class="goal-actions">
+          <button class="danger small-btn" onclick="deleteGoal(${goal.id})">Delete Goal</button>
+        </div>
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+}
+
+function renderGoalSelect() {
+  const select = document.getElementById("goalSelect");
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">— Select goal —</option>';
+  for (const g of data.goals) {
+    select.innerHTML += `<option value="${g.id}">${escapeHtml(g.name)}</option>`;
+  }
+  if (currentVal && data.goals.some(g => g.id == currentVal)) {
+    select.value = currentVal;
+  }
+}
+
+function renderHistory() {
+  const tbody = document.getElementById("history");
+  const rows = [...data.savings].sort((a,b) => b.date.localeCompare(a.date) || b.id - a.id);
+  tbody.innerHTML = rows.map(s => {
+    const goal = data.goals.find(g => g.id === s.goalId);
+    const goalName = goal ? goal.name : '❓ Deleted goal';
+    return `<tr>
+      <td>${s.date}</td>
+      <td>${escapeHtml(goalName)}</td>
+      <td><b>${money(s.amount)}</b></td>
+      <td>${escapeHtml(s.method)}</td>
+      <td>${escapeHtml(s.note || '—')}</td>
+      <td><button class="danger small-btn" onclick="deleteSaving(${s.id})">Delete</button></td>
+    </tr>`;
+  }).join("");
+  document.getElementById("empty").style.display = rows.length ? "none" : "block";
+}
+
+// ---- Export / Import / Reset ----
+function exportData() {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "my-savings-backup.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const imported = JSON.parse(reader.result);
+      if (!imported.goals || !Array.isArray(imported.goals) || !imported.savings || !Array.isArray(imported.savings))
+        throw new Error("Invalid structure");
+      // optionally validate fields
+      data = imported;
+      saveData();
+      renderAll();
+      alert("Backup imported successfully 💗");
+    } catch(err) {
+      alert("That file isn't a valid savings backup.");
+    }
+  };
+  reader.readAsText(file);
+  // reset input so same file can be re-imported
+  e.target.value = '';
+}
+
+function clearAll() {
+  if (confirm("This will erase all goals and savings. Continue?")) {
+    data = { goals: [], savings: [] };
+    saveData();
+    renderAll();
+  }
+}
+
+// ---- Initial render ----
+renderAll();
+</script>
+</body>
+</html>
